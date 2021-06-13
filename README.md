@@ -1,1 +1,1 @@
-# NewsPaper_project study Django
+# NewsPaper_project.Learning  Django with Python

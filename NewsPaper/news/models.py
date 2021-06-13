@@ -1,66 +1,103 @@
 from django.db import models
+from django.core.cache import cache
+from django.contrib.auth.models import User
 
 
 # Create your models here.
 
 class Author(models.Model):
-    author_name = models.CharField(max_length=100)
+    author = models.CharField(max_length=100)
     author_relation = models.OneToOneField(User)
-    author_rating = models.FloatField(default=0.0)
+    author_rating = models.IntegerField(default=0)
 
-    def update_rating(self, author_rating):
-        return self.author_rating + (com_likes * 3) + articles_likes
+    def update_rating(self):
+        posts_author = Post.objects.filter(author=self.id)
+        print(type(posts_author))
 
+        posts_author_total_rating = 0
+        for post in posts_author:
+            posts_author_total_rating += post.post_rating * 3
+
+        comments_author_total_rating = 0
+        for comments in Comment.objects.filter(user=self.author):
+            comments_author_total_rating += comments.comment_rating
+
+        comments_posts_total_rating = 0
+        for comments in Comment.objects.filter(post__in=posts_author):
+            comments_posts_total_rating += comments.comment_rating
+
+        self.author_rating = posts_author_total_rating + \
+                             comments_author_total_rating + \
+                             comments_posts_total_rating
+        self.save()
+
+    def __str__(self):
+        return self.author.username
 
 
 class Category(models.Model):
-    category_name = models.CharField(unique=True)
+    category_name = models.CharField(max_length=50, unique=True)
+    subscribers = models.ManyToManyField(User,
+                                         verbose_name='Подписчики',
+                                         blank=True)
+
+    def __str__(self):
+        return self.category_name
 
 
 class Post(models.Model):
-    post_relation = models.OnetToManyField(Author)
-    article_choice = models.CharField(default="статья")
-    creation_date = models.DateTimeField(auto_now_add=True)
-    post_category_relation = models.ManyToMany(Category, through='PostCategory')
-    article_title = models.CharField(max_length=200)
-    article_text = models.TextField()
-    article_rating = models.FloatField(default=0.0)
-    article_likes = models.IntegerField(default = 0)
-    article_dislikes = models.IntegerField(default = 0)
+    news = 'Новость'
+    article = 'Статья'
+    Posts = [(news, 'Новость'), (article, 'Статья')]
+    author = models.ForeignKey(Author, on_delete=models.CASCADE,
+                               verbose_name='Автор', blank=True,
+                               null=True)
+    post_type = models.CharField(max_length=30, choices=Posts,
+                                 default='select', verbose_name='Тип')
+    post_datetime = models.DateTimeField(auto_now_add=True)
+    post_category = models.ManyToManyField(Category, through='PostCategory', verbose_name='Категория')
+    post_title = models.CharField(max_length=255, verbose_name='Заголовок')
+    post_content = models.TextField(verbose_name='Содержание')
+    post_rating = models.IntegerField(default=0)
 
     def like(self):
-        articles_likes = self.article_likes + 1
-        return articles_likes
+        self.post_rating += 1
+        self.save()
 
     def dislike(self):
-        articles_dislikes = self.article_dislikes - 1
-        return articles_dislikes
+        self.post_rating -= 1
+        self.save()
 
-    def preview(self):
-        return f(self.article_text[0:123], " ...")
+    def __str__(self):
+        return f'{self.post_title.title()}: {self.post_content[:20]}'
 
+    def get_absolute_url(self):
+        return f'/news/{self.id}'
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)  # сначала вызываем метод родителя, чтобы объект сохранился
+        cache.delete(f'news-{self.pk}')  # затем удаляем его из кэша, чтобы сбросить его
 
 
 class PostCategory(models.Model):
-    post_category_post_relation = models.OnetToManyField(Post)
-    post_category_category_relation = models.OnetToManyField(Category)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
 
 
-
-class Comments(models.Model):
-    comments_post_relation = models.OnetToManyField(Post)
-    comments_user_relation = models.OnetToManyField(User)
-    comments_text = models.TextField()
-    text_creation_time = models.DateTimeField(auto_now_add=True)
-    comments_rating = models.FloatField(default=0.0)
-    comments_likes = models.IntegerField(default = 0)
-    comments_dislikes = models.IntegerField(default = 0)
+class Comment(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    comment_text = models.CharField(max_length=255)
+    comment_datetime = models.DateTimeField(auto_now_add=True)
+    comment_rating = models.IntegerField(default=0)
 
     def like(self):
-        com_likes = self.comments_likes + 1
-        return com_likes
+        self.comment_rating += 1
+        self.save()
 
     def dislike(self):
-        com_dislikes = self.comments_dislikes - 1
-        return com_dislikes
+        self.comment_rating -= 1
+        self.save()
+
+    def __str__(self):
+        return self.comment_text
